@@ -1,1 +1,613 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>ตารางสอนอาจารย์</title>
 
+  <!-- Bootstrap 5 -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <!-- SweetAlert2 -->
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+  <!-- Google Font -->
+  <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;600;700&display=swap" rel="stylesheet">
+
+  <style>
+    :root{
+      --brand:#0ea5e9;
+      --bg:#f8fafc;
+      --muted:#6b7280;
+      --card:#fff;
+      --grid:#e5e7eb;
+      --pill:#eef2ff;
+    }
+    html,body{ height:100%; background:var(--bg); font-family:"Sarabun",system-ui,Segoe UI,Arial; }
+    .brand{ color:var(--brand); }
+    .brand-bg{ background:var(--brand); color:#fff; }
+    .shadow-soft{ box-shadow:0 6px 24px rgba(0,0,0,.06); }
+    .time-badge{ font-variant-numeric:tabular-nums; }
+    .grid{ display:grid; gap:.5rem; }
+    /* ตาราง (เดสก์ท็อป) */
+    @media (min-width:992px){
+      .week-grid{
+        display:grid;
+        grid-template-columns: 120px repeat(6,1fr);
+        border:1px solid var(--grid); border-radius:12px; overflow:hidden;
+      }
+      .week-grid .cell{ border-right:1px solid var(--grid); border-bottom:1px solid var(--grid); min-height:88px; padding:.5rem;}
+      .week-grid .head{ background:#f1f5f9; font-weight:600; text-align:center; }
+      .week-grid .time-col{ background:#fafafa; text-align:center; font-weight:600; color:#334155; }
+      .event{ background:#fff7ed; border:1px solid #fed7aa; border-radius:10px; padding:.4rem .5rem; cursor:pointer; height:100%; display:flex; flex-direction:column; justify-content:center;}
+      .event .title{ font-weight:700; }
+      .event .sub{ font-size:.9rem; color:#6b7280; line-height:1.1; }
+    }
+    /* รายการ (มือถือ) */
+    .day-card{ background:var(--card); border:1px solid #e5e7eb; border-radius:16px; padding:12px; }
+    .slot-card{ background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:10px 12px; }
+    .slot-card+.slot-card{ margin-top:8px; }
+    .slot-card .title{ font-weight:700; }
+    .slot-card .meta{ color:var(--muted); font-size:.92rem; }
+    .chip{ display:inline-flex; align-items:center; gap:.35rem; background:var(--pill); border-radius:999px; padding:.1rem .6rem; font-size:.85rem; }
+    .sticky-top-blur{ position:sticky; top:0; z-index:10; backdrop-filter:saturate(180%) blur(8px); background:rgba(248,250,252,.85); border-bottom:1px solid #e5e7eb;}
+    .btn-toggle{ border-radius:999px; }
+    .kbd{ font-family:ui-monospace,Menlo,Consolas,monospace; background:#f1f5f9; border:1px solid #e5e7eb; border-bottom-width:3px; padding:.05rem .35rem; border-radius:6px; }
+    .small{ font-size:.92rem; }
+  </style>
+</head>
+<body>
+  <header class="sticky-top-blur">
+    <div class="container py-2">
+      <div class="d-flex align-items-center justify-content-between">
+        <div>
+          <div class="fw-bold brand">ตารางสอนอาจารย์</div>
+          <div class="small text-secondary" id="rangeText">สัปดาห์นี้</div>
+        </div>
+        <div class="d-flex align-items-center gap-2">
+          <button id="prevWeek" class="btn btn-outline-secondary btn-sm">สัปดาห์ก่อน</button>
+          <button id="todayBtn" class="btn btn-outline-secondary btn-sm">วันนี้</button>
+          <button id="nextWeek" class="btn btn-outline-secondary btn-sm">สัปดาห์ถัดไป</button>
+        </div>
+      </div>
+      <div class="d-flex flex-wrap align-items-center gap-2 mt-2">
+        <div class="input-group input-group-sm" style="max-width:320px;">
+          <span class="input-group-text">ค้นหา</span>
+          <input id="q" class="form-control" placeholder="เช่น M 6/8, Mathematics, Meeting">
+          <button class="btn btn-outline-secondary" id="clearQ">ล้าง</button>
+        </div>
+        <div class="ms-auto d-flex align-items-center gap-1">
+          <div class="form-check form-switch">
+            <input class="form-check-input" type="checkbox" id="modeSwitch">
+            <label class="form-check-label" for="modeSwitch">โหมดตาราง</label>
+          </div>
+          <button class="btn btn-outline-primary btn-sm btn-toggle" id="adminBtn">แอดมิน</button>
+          <div class="dropstart">
+            <button class="btn btn-outline-secondary btn-sm dropdown-toggle" data-bs-toggle="dropdown">ข้อมูล</button>
+            <ul class="dropdown-menu">
+              <li><a class="dropdown-item" href="#" id="exportJSON">Export JSON</a></li>
+              <li><a class="dropdown-item" href="#" id="importJSON">Import JSON</a></li>
+              <li><a class="dropdown-item" href="#" id="exportICS">Export .ics (ทั้งสัปดาห์)</a></li>
+              <li><hr class="dropdown-divider"></li>
+              <li><span class="dropdown-item small text-muted">โหมดแอดมิน: เพิ่ม/แก้/ลบคาบ</span></li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main class="container my-3" id="appRoot">
+    <!-- โหมดรายการ (มือถือ) -->
+    <div id="listView" class="grid" style="gap:1rem;"></div>
+
+    <!-- โหมดตาราง (จอใหญ่) -->
+    <div id="tableView" class="mt-3" style="display:none;">
+      <div class="week-grid shadow-soft" id="grid"></div>
+      <div class="text-muted small mt-2">* แตะคาบเพื่อดูรายละเอียด / กด <span class="kbd">A</span> เพื่อเพิ่มคาบ (โหมดแอดมิน)</div>
+    </div>
+  </main>
+
+  <footer class="container my-4 text-center text-secondary small">
+    สร้างด้วย ❤️ สำหรับอาจารย์ โดย Bootstrap 5 + SweetAlert2
+  </footer>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script>
+    /***********************
+     * 1) ค่าพื้นฐาน/ข้อมูล
+     ***********************/
+    const ADMIN_PASS = 'aaaaaaa';
+    const STORAGE_KEY = 'schedule.events.v1';
+    const DAYS_THAI = ['อาทิตย์','จันทร์','อังคาร','พุธ','พฤหัสฯ','ศุกร์','เสาร์'];
+    const DAY_KEYS   = ['sun','mon','tue','wed','thu','fri','sat'];
+    // สลอตตามภาพตัวอย่าง
+    const SLOTS = [
+      {start:'08:30', end:'09:15'},
+      {start:'09:15', end:'10:00'},
+      {start:'10:00', end:'10:45'},
+      {start:'10:45', end:'11:30'},
+      {start:'11:30', end:'12:15'},
+      {start:'13:10', end:'13:55'},
+      {start:'13:55', end:'14:40'},
+      {start:'14:40', end:'15:25'},
+      {start:'15:25', end:'16:10'},
+    ];
+
+    // ชุดตัวอย่างจากภาพ (แก้ชื่อ/วิชาเพิ่มได้ในแอดมิน)
+    const seedEvents = [
+      // Sunday
+      ev('sun',1,'Mathematics','M 6/7','Hambali Waji'),
+      // Monday
+      ev('mon',5,'Mathematics','M 5/2','Hambali Waji'),
+      // Tuesday
+      ev('tue',1,'Mathematics','M 6/7','Hambali Waji'),
+      ev('tue',2,'HEMMeeting','รายชื่อ','AbdulJalil MahUseng; Nurdeen Sensana Mirfat; Jusae Azman Musa Sahudi; Ibrahim Abdulkareem; Salam Adsak Tayeh; Saripah Yusoh Hambali Waji'),
+      ev('tue',5,'Mathematics','M 6/2','Hambali Waji'),
+      // Wednesday
+      ev('wed',5,'Mathematics','M 6/2','Hambali Waji'),
+      // Thursday
+      ev('thu',0,'Mathematics','M 6/8','Hambali Waji'),
+      ev('thu',1,'Mathematics','M 5/2','Hambali Waji'),
+      ev('thu',3,'MeetingAK','ผู้เข้าร่วม','Suriya Srisupasitanon; Anyarat Chajita Nurisa; Dami Sariyah Bahem; Nawal Kaci Harisa Kedah; Maimunah Tayeh Leeyana; Sama-e Tahirah; HayeeWaesalaemae'),
+      ev('thu',7,'Mathematics','M 6/8','Hambali Waji'),
+      // Friday
+      ev('fri',7,'Mathematics','M 6/8','Hambali Waji'),
+    ];
+
+    function ev(dayKey, slotIndex, title, group, teacher, color){
+      return { id: crypto.randomUUID(), day: dayKey, slot: slotIndex, title, group, teacher,
+        color: color || (title?.toLowerCase()?.includes('meeting') ? '#e0f2fe' : '#fef3c7') };
+    }
+
+    let state = {
+      startOfWeek: startOfWeek(new Date()),
+      admin: false,
+      q: ''
+    };
+
+    /***********************
+     * 2) เก็บ/โหลดข้อมูล
+     ***********************/
+    function loadEvents(){
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if(!raw){
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(seedEvents));
+        return [...seedEvents];
+      }
+      try{
+        const data = JSON.parse(raw);
+        // ป้องกันคีย์หาย
+        return data.map(x => ({ id: x.id || crypto.randomUUID(), ...x }));
+      }catch(e){
+        console.warn('Reset corrupt data', e);
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(seedEvents));
+        return [...seedEvents];
+      }
+    }
+    function saveEvents(list){
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+    }
+    let EVENTS = loadEvents();
+
+    /***********************
+     * 3) เรนเดอร์ (รายการ)
+     ***********************/
+    function renderList(){
+      const root = document.getElementById('listView');
+      root.innerHTML = '';
+      const days = rangeDays(state.startOfWeek, 6);
+      const filt = buildFilter(state.q);
+
+      days.forEach(d=>{
+        const key = DAY_KEYS[d.getDay()];
+        const items = EVENTS.filter(x => x.day===key).filter(filt).sort(bySlot);
+        const dayName = DAYS_THAI[d.getDay()];
+        const dateStr = d.toLocaleDateString('th-TH',{day:'2-digit',month:'2-digit',year:'numeric'});
+        const card = document.createElement('div');
+        card.className='day-card shadow-soft';
+        card.innerHTML=`
+          <div class="d-flex align-items-center justify-content-between mb-2">
+            <div class="fw-bold">${dayName}</div>
+            <div class="chip"><span class="time-badge">${dateStr}</span></div>
+          </div>
+          <div class="slots"></div>
+        `;
+        const wrap = card.querySelector('.slots');
+        if(items.length===0){
+          wrap.innerHTML = `<div class="text-center text-muted small">— ไม่มีคาบ —</div>`;
+        }else{
+          items.forEach(ev => {
+            const s = SLOTS[ev.slot];
+            const el = document.createElement('div');
+            el.className='slot-card';
+            el.style.background = ev.color || '#fff';
+            el.innerHTML = `
+              <div class="d-flex justify-content-between align-items-start">
+                <div class="title">${escapeHtml(ev.title||'')}</div>
+                <div class="time-badge">${s.start}–${s.end}</div>
+              </div>
+              <div class="meta mt-1">${escapeHtml(ev.group||'')}</div>
+              <div class="small text-secondary">${escapeHtml(ev.teacher||'')}</div>
+              ${state.admin ? `<div class="mt-2 d-flex gap-2">
+                <button class="btn btn-sm btn-outline-primary" data-act="edit">แก้ไข</button>
+                <button class="btn btn-sm btn-outline-danger" data-act="del">ลบ</button>
+              </div>`:''}
+            `;
+            el.addEventListener('click', (e)=>{
+              if(e.target.dataset.act==='edit'){ editEvent(ev.id); e.stopPropagation(); return; }
+              if(e.target.dataset.act==='del'){ deleteEvent(ev.id); e.stopPropagation(); return; }
+              showEvent(ev);
+            });
+            wrap.appendChild(el);
+          });
+        }
+        root.appendChild(card);
+      });
+    }
+
+    /***********************
+     * 4) เรนเดอร์ (ตาราง)
+     ***********************/
+    function renderTable(){
+      const grid = document.getElementById('grid');
+      grid.innerHTML='';
+      const days = rangeDays(state.startOfWeek, 6);
+
+      // หัวตาราง
+      const headTime = div('cell head time-col','เวลา');
+      grid.appendChild(headTime);
+      days.forEach(d=>{
+        const name = DAYS_THAI[d.getDay()];
+        const dateStr = d.toLocaleDateString('th-TH',{day:'2-digit',month:'2-digit'});
+        const h = div('cell head', `<div>${name}</div><div class="small text-secondary">${dateStr}</div>`);
+        grid.appendChild(h);
+      });
+
+      // แถวเวลา
+      SLOTS.forEach((slot, r)=>{
+        // คอลัมน์เวลา
+        grid.appendChild(div('cell time-col', `<div>${slot.start}–${slot.end}</div>`));
+        // คอลัมน์วัน
+        days.forEach(d=>{
+          const key = DAY_KEYS[d.getDay()];
+          const cell = div('cell','');
+          const filt = buildFilter(state.q);
+          const items = EVENTS.filter(x=>x.day===key && x.slot===r).filter(filt).sort(byTitle);
+          if(items.length){
+            items.forEach(ev=>{
+              const el = div('event', `
+                <div class="title">${escapeHtml(ev.title||'')}</div>
+                <div class="sub">${escapeHtml(ev.group||'')}</div>
+                <div class="sub">${escapeHtml(ev.teacher||'')}</div>
+              `);
+              el.style.background = ev.color || '#fff7ed';
+              el.addEventListener('click', ()=> showEvent(ev));
+              if(state.admin){
+                el.title = 'คลิกเพื่อแก้ไข/ลบ';
+                el.addEventListener('dblclick', ()=> editEvent(ev.id));
+              }
+              cell.appendChild(el);
+            });
+          }
+          grid.appendChild(cell);
+        });
+      });
+    }
+
+    /***********************
+     * 5) UI & ปุ่มต่างๆ
+     ***********************/
+    const listView = document.getElementById('listView');
+    const tableView = document.getElementById('tableView');
+    const modeSwitch = document.getElementById('modeSwitch');
+
+    function refresh(){
+      document.getElementById('rangeText').textContent = weekRangeText(state.startOfWeek);
+      if(modeSwitch.checked){ // ตาราง
+        tableView.style.display='';
+        listView.style.display='none';
+        renderTable();
+      }else{
+        listView.style.display='';
+        tableView.style.display='none';
+        renderList();
+      }
+    }
+
+    document.getElementById('prevWeek').onclick = ()=>{
+      state.startOfWeek = addDays(state.startOfWeek, -7);
+      refresh();
+    };
+    document.getElementById('nextWeek').onclick = ()=>{
+      state.startOfWeek = addDays(state.startOfWeek, 7);
+      refresh();
+    };
+    document.getElementById('todayBtn').onclick = ()=>{
+      state.startOfWeek = startOfWeek(new Date());
+      refresh();
+    };
+    modeSwitch.onchange = refresh;
+
+    // ค้นหา
+    document.getElementById('q').addEventListener('input', e=>{
+      state.q = e.target.value.trim();
+      refresh();
+    });
+    document.getElementById('clearQ').onclick = ()=>{
+      document.getElementById('q').value='';
+      state.q='';
+      refresh();
+    };
+
+    // แอดมิน
+    document.getElementById('adminBtn').onclick = async ()=>{
+      if(state.admin){
+        state.admin=false;
+        document.getElementById('adminBtn').classList.replace('btn-outline-danger','btn-outline-primary');
+        document.getElementById('adminBtn').textContent='แอดมิน';
+        refresh();
+        return;
+      }
+      const { value: pass } = await Swal.fire({
+        title:'เข้าสู่โหมดแอดมิน',
+        input:'password',
+        inputLabel:'รหัสผ่าน',
+        inputPlaceholder:'กรอกรหัสผ่าน',
+        showCancelButton:true,
+        confirmButtonText:'ยืนยัน',
+        cancelButtonText:'ยกเลิก'
+      });
+      if(pass===ADMIN_PASS){
+        state.admin = true;
+        document.getElementById('adminBtn').classList.replace('btn-outline-primary','btn-outline-danger');
+        document.getElementById('adminBtn').textContent='ออกจากแอดมิน';
+        Swal.fire('สำเร็จ','คุณอยู่ในโหมดแอดมินแล้ว','success');
+        refresh();
+      }else if(pass){
+        Swal.fire('ไม่ถูกต้อง','รหัสผ่านไม่ถูกต้อง','error');
+      }
+    };
+
+    // เพิ่มคาบแบบคีย์ลัด (A)
+    window.addEventListener('keydown', (e)=>{
+      if(state.admin && (e.key==='a' || e.key==='A')) addEventModal();
+    });
+
+    /***********************
+     * 6) จัดการเหตุการณ์
+     ***********************/
+    function showEvent(ev){
+      const s = SLOTS[ev.slot];
+      Swal.fire({
+        title: ev.title || 'รายละเอียด',
+        html: `
+          <div class="text-start">
+            <div><span class="chip">${thaiDay(ev.day)} • ${s.start}–${s.end}</span></div>
+            <div class="mt-2"><b>กลุ่ม/ชั้น:</b> ${escapeHtml(ev.group||'-')}</div>
+            <div><b>ผู้สอน/ผู้รับผิดชอบ:</b> ${escapeHtml(ev.teacher||'-')}</div>
+          </div>
+        `,
+        showCancelButton: state.admin,
+        cancelButtonText: 'ลบ',
+        confirmButtonText: state.admin ? 'แก้ไข' : 'ปิด',
+        showDenyButton: state.admin,
+        denyButtonText: 'ปิด'
+      }).then(res=>{
+        if(state.admin){
+          if(res.isConfirmed) editEvent(ev.id);
+          else if(res.dismiss===Swal.DismissReason.cancel) deleteEvent(ev.id);
+        }
+      });
+    }
+
+    async function addEventModal(defaults={}){
+      const { value: form } = await Swal.fire({
+        title: 'เพิ่ม/แก้ไขคาบ',
+        html: formHtml(defaults),
+        focusConfirm:false,
+        showCancelButton:true,
+        confirmButtonText:'บันทึก',
+        cancelButtonText:'ยกเลิก',
+        preConfirm:()=> getFormValue()
+      });
+      return form;
+    }
+
+    async function editEvent(id){
+      const ev = EVENTS.find(x=>x.id===id);
+      const form = await addEventModal(ev);
+      if(!form) return;
+      Object.assign(ev, form);
+      saveEvents(EVENTS);
+      refresh();
+      Swal.fire('บันทึกแล้ว','','success');
+    }
+
+    async function deleteEvent(id){
+      const ok = await Swal.fire({title:'ลบคาบนี้?', icon:'warning', showCancelButton:true, confirmButtonText:'ลบ', cancelButtonText:'ยกเลิก'});
+      if(!ok.isConfirmed) return;
+      EVENTS = EVENTS.filter(x=>x.id!==id);
+      saveEvents(EVENTS);
+      refresh();
+      Swal.fire('ลบแล้ว','','success');
+    }
+
+    // ปุ่มเมนู Export/Import/ICS
+    document.getElementById('exportJSON').onclick = ()=>{
+      const blob = new Blob([JSON.stringify(EVENTS,null,2)], {type:'application/json'});
+      downloadBlob(blob, 'schedule.json');
+    };
+    document.getElementById('importJSON').onclick = async ()=>{
+      const input = document.createElement('input');
+      input.type='file'; input.accept='application/json';
+      input.onchange = ()=>{
+        const file = input.files[0];
+        if(!file) return;
+        const reader = new FileReader();
+        reader.onload = ()=>{
+          try{
+            const data = JSON.parse(reader.result);
+            if(Array.isArray(data)){
+              EVENTS = data.map(x=>({ id: x.id || crypto.randomUUID(), ...x }));
+              saveEvents(EVENTS); refresh();
+              Swal.fire('นำเข้าแล้ว','','success');
+            }else throw new Error('รูปแบบไม่ถูกต้อง');
+          }catch(e){ Swal.fire('ผิดพลาด', e.message, 'error'); }
+        };
+        reader.readAsText(file);
+      };
+      input.click();
+    };
+    document.getElementById('exportICS').onclick = ()=>{
+      const ics = toICS(EVENTS, state.startOfWeek);
+      const blob = new Blob([ics], {type:'text/calendar;charset=utf-8'});
+      downloadBlob(blob, 'schedule_week.ics');
+    };
+
+    /***********************
+     * 7) ผู้ช่วย/ฟังก์ชันย่อย
+     ***********************/
+    function startOfWeek(d){ // อาทิตย์เป็นวันแรก
+      const x = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+      const day = x.getDay(); // 0=อาทิตย์
+      x.setDate(x.getDate()-day);
+      x.setHours(0,0,0,0);
+      return x;
+    }
+    function addDays(d,n){ const x=new Date(d); x.setDate(x.getDate()+n); return x; }
+    function rangeDays(start, n){ return Array.from({length:n+1}, (_,i)=> addDays(start,i)); }
+    function weekRangeText(start){
+      const end = addDays(start,6);
+      const opt = { day:'2-digit', month:'2-digit', year:'numeric' };
+      return `${start.toLocaleDateString('th-TH',opt)} – ${end.toLocaleDateString('th-TH',opt)}`;
+    }
+    function div(cls, html){ const el=document.createElement('div'); el.className=cls; el.innerHTML=html; return el; }
+    function bySlot(a,b){ return a.slot-b.slot || a.title.localeCompare(b.title); }
+    function byTitle(a,b){ return a.title.localeCompare(b.title); }
+    function thaiDay(key){ return DAYS_THAI[DAY_KEYS.indexOf(key)]; }
+    function escapeHtml(s){ return (s||'').replace(/[&<>"']/g,m=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m])); }
+    function buildFilter(q){
+      if(!q) return ()=>true;
+      const w = q.toLowerCase();
+      return x => [x.title,x.group,x.teacher].some(v => (v||'').toLowerCase().includes(w));
+    }
+    function formHtml(d={}){
+      const dayOpts = DAY_KEYS.slice(0,6).map((k,i)=>`<option value="${k}" ${d.day===k?'selected':''}>${DAYS_THAI[i]}</option>`).join('');
+      const slotOpts = SLOTS.map((s,i)=>`<option value="${i}" ${d.slot==i?'selected':''}>${s.start}–${s.end}</option>`).join('');
+      return `
+        <div class="text-start">
+          <label class="form-label mt-2">วัน</label>
+          <select id="f_day" class="form-select">${dayOpts}</select>
+
+          <label class="form-label mt-2">เวลา</label>
+          <select id="f_slot" class="form-select">${slotOpts}</select>
+
+          <label class="form-label mt-2">วิชา/หัวข้อ</label>
+          <input id="f_title" class="form-control" value="${d.title||''}" placeholder="Mathematics / Meeting">
+
+          <label class="form-label mt-2">ชั้น/กลุ่ม</label>
+          <input id="f_group" class="form-control" value="${d.group||''}" placeholder="M 6/8 / รายชื่อผู้เข้าร่วม">
+
+          <label class="form-label mt-2">ผู้สอน/ผู้รับผิดชอบ</label>
+          <input id="f_teacher" class="form-control" value="${d.teacher||''}" placeholder="Hambali Waji">
+
+          <label class="form-label mt-2">สีการ์ด (ออปชัน)</label>
+          <input id="f_color" type="color" class="form-control form-control-color" value="${toColor(d.color)}" title="เลือกสี">
+        </div>
+      `;
+    }
+    function toColor(c){ // รับทั้ง hex หรือว่าง
+      const ctx = document.createElement('canvas').getContext('2d');
+      ctx.fillStyle = c || '#fef3c7';
+      return ctx.fillStyle || '#fef3c7';
+    }
+    function getFormValue(){
+      const day  = document.getElementById('f_day').value;
+      const slot = +document.getElementById('f_slot').value;
+      const title = document.getElementById('f_title').value.trim();
+      if(!title) return Swal.showValidationMessage('กรอกชื่อวิชา/หัวข้อ');
+      return {
+        id: crypto.randomUUID(),
+        day, slot,
+        title,
+        group: document.getElementById('f_group').value.trim(),
+        teacher: document.getElementById('f_teacher').value.trim(),
+        color: document.getElementById('f_color').value
+      };
+    }
+    function downloadBlob(blob, filename){
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = filename; a.click();
+      setTimeout(()=> URL.revokeObjectURL(url), 500);
+    }
+
+    // เพิ่มคาบใหม่จากเมนู (เฉพาะโหมดแอดมิน)
+    document.addEventListener('click', (e)=>{
+      if(state.admin && e.target.matches('#addNew')) addEventModal();
+    });
+
+    // สร้าง ICS (ทั้งสัปดาห์)
+    function toICS(events, startOfWeekDate){
+      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Bangkok';
+      const lines = [
+        'BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//Teacher Schedule//TH','CALSCALE:GREGORIAN','METHOD:PUBLISH'
+      ];
+      const start = startOfWeekDate;
+      events.forEach(ev=>{
+        const dayIndex = DAY_KEYS.indexOf(ev.day);
+        if(dayIndex<0) return;
+        const date = addDays(start, dayIndex);
+        const slot = SLOTS[ev.slot]; if(!slot) return;
+        const [sh,sm]=slot.start.split(':').map(Number);
+        const [eh,em]=slot.end.split(':').map(Number);
+        const dtStart = new Date(date); dtStart.setHours(sh,sm,0,0);
+        const dtEnd   = new Date(date); dtEnd.setHours(eh,em,0,0);
+        lines.push('BEGIN:VEVENT');
+        lines.push('UID:'+ev.id);
+        lines.push('DTSTAMP:'+icsDate(new Date()));
+        lines.push('DTSTART:'+icsDate(dtStart));
+        lines.push('DTEND:'+icsDate(dtEnd));
+        lines.push('SUMMARY:'+safeICS(ev.title||''));
+        lines.push('DESCRIPTION:'+safeICS((ev.group||'')+(ev.teacher? '\\n'+ev.teacher:'')));
+        lines.push('LOCATION:'+safeICS('ห้องเรียน/โรงเรียน'));
+        lines.push('END:VEVENT');
+      });
+      lines.push('END:VCALENDAR');
+      return lines.join('\r\n');
+
+      function icsDate(d){
+        const pad=n=>String(n).padStart(2,'0');
+        return d.getUTCFullYear()
+          + pad(d.getUTCMonth()+1)
+          + pad(d.getUTCDate())
+          +'T'
+          + pad(d.getUTCHours())+pad(d.getUTCMinutes())+pad(d.getUTCSeconds())
+          +'Z';
+      }
+      function safeICS(s){ return (s||'').replace(/[\n\r]/g,'\\n').replace(/[,;]/g, m=> (m===','?'\\,':'\\;')); }
+    }
+
+    /***********************
+     * 8) เริ่มทำงาน
+     ***********************/
+    function init(){
+      // ปุ่มเพิ่มคาบ (แสดงเฉพาะมือถือโหมดรายการเมื่อเป็นแอดมิน)
+      const fab = document.createElement('button');
+      fab.id='addNew';
+      fab.className='btn brand-bg shadow-soft position-fixed';
+      fab.style.cssText='right:16px;bottom:16px;border-radius:999px;padding:.6rem .9rem;display:none;';
+      fab.innerHTML='<b>＋</b>';
+      document.body.appendChild(fab);
+
+      const obs = new MutationObserver(()=>{
+        fab.style.display = (state.admin && !modeSwitch.checked) ? 'inline-flex' : 'none';
+      });
+      obs.observe(document.getElementById('appRoot'), { childList:true, subtree:true });
+
+      refresh();
+    }
+
+    init();
+  </script>
+</body>
+</html>
